@@ -9,7 +9,7 @@ namespace ShadeOfColor
             Console.WriteLine("ShadeOfColor - Turn any file into an image, and back again.");
             Console.WriteLine();
             Console.WriteLine("Usage:");
-            Console.WriteLine("  shadeofcolor.exe -crypt <inputFile> <outputImage.png> [-password [pwd]]");
+            Console.WriteLine("  shadeofcolor.exe -crypt <inputFile> <outputImage.png> [options]");
             Console.WriteLine("  shadeofcolor.exe -decrypt <inputImage.png> [-password [pwd]]");
             Console.WriteLine("  shadeofcolor.exe -info <inputImage.png>");
             Console.WriteLine();
@@ -21,11 +21,26 @@ namespace ShadeOfColor
             Console.WriteLine("Options:");
             Console.WriteLine("  -password [pwd]  Encrypt/decrypt with a password");
             Console.WriteLine("                   If password is omitted, you will be prompted securely");
+            Console.WriteLine("  -cover <image>   Hide data inside an existing image (steganography)");
+            Console.WriteLine("                   The output will look like the cover image");
             Console.WriteLine();
             Console.WriteLine("Examples:");
+            Console.WriteLine("  # Basic encoding (creates random-looking image)");
+            Console.WriteLine("  shadeofcolor.exe -crypt secret.docx output.png");
+            Console.WriteLine();
+            Console.WriteLine("  # Encoding with password encryption");
             Console.WriteLine("  shadeofcolor.exe -crypt secret.docx output.png -password mypassword");
-            Console.WriteLine("  shadeofcolor.exe -crypt secret.docx output.png -password");
+            Console.WriteLine();
+            Console.WriteLine("  # Steganography: hide data inside a vacation photo");
+            Console.WriteLine("  shadeofcolor.exe -crypt secret.docx output.png -cover vacation.png");
+            Console.WriteLine();
+            Console.WriteLine("  # Steganography with encryption (maximum security)");
+            Console.WriteLine("  shadeofcolor.exe -crypt secret.docx output.png -cover photo.png -password");
+            Console.WriteLine();
+            Console.WriteLine("  # Decryption (auto-detects steganography and encryption)");
             Console.WriteLine("  shadeofcolor.exe -decrypt output.png -password mypassword");
+            Console.WriteLine();
+            Console.WriteLine("  # View image metadata");
             Console.WriteLine("  shadeofcolor.exe -info output.png");
         }
 
@@ -77,13 +92,14 @@ namespace ShadeOfColor
         {
             if (args.Length < 3)
             {
-                Console.WriteLine("Usage: shadeofcolor.exe -crypt <inputFile> <outputImage.png> [-password [pwd]]");
+                Console.WriteLine("Usage: shadeofcolor.exe -crypt <inputFile> <outputImage.png> [-password [pwd]] [-cover <image>]");
                 return;
             }
 
             string input = args[1];
             string output = args[2];
             string? password = null;
+            string? coverImage = null;
 
             // Parse -password option
             int passwordIndex = Array.FindIndex(args, a => a.ToLowerInvariant() == "-password");
@@ -114,10 +130,42 @@ namespace ShadeOfColor
                 }
             }
 
-            FileToImage.EncryptFileToImage(input, output, password);
+            // Parse -cover option
+            int coverIndex = Array.FindIndex(args, a => a.ToLowerInvariant() == "-cover");
+            if (coverIndex >= 0)
+            {
+                if (coverIndex + 1 < args.Length && !args[coverIndex + 1].StartsWith("-"))
+                {
+                    coverImage = args[coverIndex + 1];
 
-            string mode = password != null ? " (encrypted)" : "";
-            Console.WriteLine($"OK: '{input}' -> '{output}'{mode}");
+                    // Verify cover image exists
+                    if (!File.Exists(coverImage))
+                    {
+                        Console.WriteLine($"Error: Cover image not found: {coverImage}");
+                        return;
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("Error: -cover requires an image path.");
+                    return;
+                }
+            }
+
+            FileToImage.EncryptFileToImage(input, output, password, coverImage);
+
+            // Build status message
+            var modes = new List<string>();
+            if (password != null) modes.Add("encrypted");
+            if (coverImage != null) modes.Add("steganographic");
+
+            string modeStr = modes.Count > 0 ? $" ({string.Join(", ", modes)})" : "";
+            Console.WriteLine($"OK: '{input}' -> '{output}'{modeStr}");
+
+            if (coverImage != null)
+            {
+                Console.WriteLine($"    Hidden inside: '{coverImage}'");
+            }
         }
 
         static void HandleDecrypt(string[] args)
@@ -160,7 +208,14 @@ namespace ShadeOfColor
             }
 
             string savedAs = FileToImage.DecryptImageToFile(input, Directory.GetCurrentDirectory(), password);
-            Console.WriteLine($"OK: '{input}' -> '{savedAs}'");
+
+            // Build status message
+            var modes = new List<string>();
+            if (info.IsSteganographic) modes.Add("steganographic");
+            if (info.IsEncrypted) modes.Add("encrypted");
+
+            string modeStr = modes.Count > 0 ? $" [{string.Join(", ", modes)}]" : "";
+            Console.WriteLine($"OK: '{input}'{modeStr} -> '{savedAs}'");
         }
 
         static void HandleInfo(string[] args)
@@ -185,8 +240,14 @@ namespace ShadeOfColor
 
             Console.WriteLine($"Version: {info.Version}");
             Console.WriteLine($"Encrypted: {(info.IsEncrypted ? "Yes" : "No")}");
+            Console.WriteLine($"Steganographic: {(info.IsSteganographic ? "Yes" : "No")}");
             Console.WriteLine($"Original filename: {info.FileName}");
             Console.WriteLine($"Original file size: {FormatFileSize(info.FileSize)}");
+
+            if (info.IsSteganographic && info.DataSize > 0)
+            {
+                Console.WriteLine($"Embedded data size: {FormatFileSize(info.DataSize)}");
+            }
         }
 
         static string ReadPasswordSecurely(string prompt)
